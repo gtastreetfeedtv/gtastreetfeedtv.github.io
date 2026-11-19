@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>GTA Streetfeed player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  iframe, #tw, #yt { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; }
+  p { color: #888; font: 16px system-ui, sans-serif; text-align: center; margin-top: 40vh; }
+</style>
+</head>
+<body>
+<script>
+  // Full-screen embed of a public stream, using each site's official embed player.
+  // ?yt=VIDEO_ID  |  ?twitch=CHANNEL  |  ?kick=CHANNEL
+  // Twitch and YouTube are asked for their best quality (Twitch "Source"), and asked again every 30 s,
+  // because "auto" quality drops to 480p/720p when several streams play at once.
+  const q = new URLSearchParams(location.search);
+  const ok = s => /^[A-Za-z0-9_-]{1,64}$/.test(s || "");
+  const load = (url, cb) => { const s = document.createElement("script"); s.src = url; s.onload = cb; document.head.appendChild(s); };
+
+  if (ok(q.get("twitch"))) {
+    document.body.insertAdjacentHTML("beforeend", '<div id="tw"></div>');
+    load("https://player.twitch.tv/js/embed/v1.js", () => {
+      const p = new Twitch.Player("tw", { channel: q.get("twitch"), width: "100%", height: "100%",
+                                          parent: [location.hostname], autoplay: true, muted: false });
+      let last = -1, still = 0;
+      const best = () => {
+        try {
+          const t = p.getCurrentTime();
+          // Watchdog: a stuck ad or stalled stream (time not moving for ~2 min) -> reload the player page.
+          if (t === last) { if (++still >= 4) location.reload(); } else { still = 0; last = t; }
+          if (!(t > 5) || p.isPaused()) return;        // only touch quality once the stream itself is playing
+          const qs = (p.getQualities() || []).filter(x => x.group !== "auto");
+          const src = qs.find(x => x.group === "chunked") || qs[0];
+          if (src && p.getQuality() !== src.group) p.setQuality(src.group);
+          if (p.getMuted()) p.setMuted(false);
+        } catch (e) {}
+      };
+      setInterval(best, 30000);
+    });
+  } else if (ok(q.get("yt"))) {
+    document.body.insertAdjacentHTML("beforeend", '<div id="yt"></div>');
+    window.onYouTubeIframeAPIReady = () => {
+      new YT.Player("yt", { videoId: q.get("yt"), width: "100%", height: "100%",
+        playerVars: { autoplay: 1, mute: 0, playsinline: 1, rel: 0, cc_load_policy: 0, iv_load_policy: 3, vq: "hd1080" },
+        events: { onReady: e => { const t = e.target; const best = () => { try { t.setPlaybackQuality("highres"); t.unMute(); } catch (x) {} };
+                                  best(); t.playVideo(); setInterval(best, 30000); } } });
+    };
+    load("https://www.youtube.com/iframe_api");
+  } else if (ok(q.get("kick"))) {
+    const f = document.createElement("iframe");
+    f.src = `https://player.kick.com/${q.get("kick")}?autoplay=true&muted=false`;
+    f.allow = "autoplay; encrypted-media; fullscreen; picture-in-picture";
+    f.referrerPolicy = "strict-origin-when-cross-origin";
+    f.allowFullscreen = true;
+    document.body.appendChild(f);
+  } else {
+    document.body.innerHTML = "<p>Add ?yt=VIDEO_ID, ?twitch=CHANNEL or ?kick=CHANNEL</p>";
+  }
+</script>
+</body>
+</html>
